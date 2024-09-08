@@ -1,7 +1,8 @@
 from django.contrib import admin
 
-from .models import Opportunity, Stage
 from apps.signoff.models import Signoff
+from apps.signoff.constants import Status, SubStage
+from .models import Opportunity, Stage, Document
 
 
 class StageInline(admin.TabularInline):
@@ -14,15 +15,72 @@ class StageInline(admin.TabularInline):
 
 class SignoffInline(admin.TabularInline):
     model = Signoff
-    readonly_fields = ("created_time", "user", "stage")
-    fields = ("created_time", "user", "stage", "status")
+    readonly_fields = (
+        "created_time",
+        "user",
+        "stage",
+        "sub_stage",
+        "turn_around_time",
+        "status",
+    )
+    fields = (
+        "id",
+        "created_time",
+        "user",
+        "stage",
+        "sub_stage",
+        "turn_around_time",
+        "status",
+    )
+    can_delete = False
+    extra = 0
+
+
+class SignoffUserDedicatedInline(admin.TabularInline):
+    model = Signoff
+    readonly_fields = (
+        "created_time",
+        "user",
+        "stage",
+        "sub_stage",
+        "turn_around_time",
+    )
+    fields = (
+        "id",
+        "created_time",
+        "user",
+        "stage",
+        "sub_stage",
+        "turn_around_time",
+        "status",
+    )
+    can_delete = False
+    extra = 0
+    verbose_name = "PENDING SIGNOFF"
+    verbose_name_plural = "PENDING SIGNOFFS"
+
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        queryset = queryset.filter(
+            user=request.user,
+            status=Status.PENDING.value
+        )
+        return queryset
+
+
+class DocumentInline(admin.TabularInline):
+    model = Document
+    fields = (
+        "type",
+        "document",
+    )
     can_delete = False
     extra = 0
 
 
 class OpportunityAdmin(admin.ModelAdmin):
     list_display = ("id", "name")
-    inlines = (StageInline, SignoffInline)
+    inlines = (StageInline, SignoffInline, SignoffUserDedicatedInline, DocumentInline)
     fieldsets = (
         (
             "Information",
@@ -58,7 +116,7 @@ class OpportunityAdmin(admin.ModelAdmin):
                 read_only_fields.append("sales_advisor")
             if obj.solution_manager:
                 read_only_fields.append("solution_manager")
-            if obj.solution_architect:
+            if obj.solution_architect or (not obj.solution_architect and request.user != obj.solution_manager):
                 read_only_fields.append("solution_architect")
         else:
             read_only_fields.extend(["sales_advisor", "solution_architect"])
@@ -68,119 +126,7 @@ class OpportunityAdmin(admin.ModelAdmin):
         if not change:
             obj.sales_advisor = request.user
         super().save_model(request=request, obj=obj, form=form, change=change)
-        if not change:
-            obj.initialize_stage()
+        Opportunity.objects.process_opportunity(opportunity=obj)
 
 
 admin.site.register(Opportunity, OpportunityAdmin)
-#
-#
-# class OpportunityAdmin(admin.ModelAdmin, CheckGroupMixins):
-#     list_display = ("id", "service_delivery_id", "name", "service_type", "stage")
-#     list_filter = ("stage",)
-#     readonly_fields = (
-#         "stage",
-#         "initial_start_date",
-#         "initial_end_date",
-#         "scoping_start_date",
-#         "scoping_end_date",
-#     )
-#     fieldsets = (
-#         (
-#             "Basic Information",
-#             {
-#                 "fields": (
-#                     "created_by",
-#                     "modified_by",
-#                     "user",
-#                 ),
-#                 "classes": ("wide", "extrapretty"),
-#             }
-#         ),
-#         (
-#             "Information",
-#             {
-#                 "fields": (
-#                     "service_delivery_id",
-#                     "name",
-#                     "email",
-#                     "phone_number",
-#                     "company_name",
-#                     "service_type",
-#                     "desired_outcome",
-#                     "product",
-#                     "price",
-#                     "is_sales_qualified",
-#                     "expected_date",
-#                     "stage",
-#                     "bid",
-#                 ),
-#                 "classes": ("wide", "extrapretty"),
-#             }
-#         ),
-#         (
-#             "Auditing",
-#             {
-#                 "fields": (
-#                     "initial_start_date",
-#                     "initial_end_date",
-#                     "scoping_start_date",
-#                     "scoping_end_date",
-#                 ),
-#                 "classes": ("wide", "extrapretty"),
-#             }
-#         ),
-#         (
-#             "Signoff",
-#             {
-#                 "fields": ("sales_advisor_signoff", "solution_manager_signoff", "solution_architect_signoff"),
-#                 "classes": ("wide", "extrapretty"),
-#             }
-#         ),
-#     )
-#
-#     def get_readonly_fields(self, request, obj=None):
-#         read_only_fields = list(super().get_readonly_fields(request=request, obj=obj))
-#         if self.is_sales_advisor_signoff_disabled(request=request, obj=obj):
-#             read_only_fields.append("sales_advisor_signoff")
-#         if self.is_solution_manager_signoff_disabled(request=request, obj=obj):
-#             read_only_fields.append("solution_manager_signoff")
-#         if self.is_solution_architect_signoff_disabled(request=request, obj=obj):
-#             read_only_fields.append("solution_architect_signoff")
-#
-#         return read_only_fields
-#
-#     def is_sales_advisor_signoff_disabled(self, request, obj):
-#         has_permission = self.check_group(request=request, group=Groups.SALES_ADVISOR.value)
-#         return (
-#             True
-#             if not obj or obj.sales_advisor_signoff or not has_permission else
-#             False
-#         )
-#
-#     def is_solution_manager_signoff_disabled(self, request, obj):
-#         has_permission = self.check_group(request=request, group=Groups.SOLUTION_MANAGER.value)
-#         return (
-#             True
-#             if not obj or obj.solution_manager_signoff
-#                 or not obj.sales_advisor_signoff
-#                 or not has_permission
-#                 or request.user != obj.sales_advisor_signoff.assignee
-#             else False
-#         )
-#
-#     def is_solution_architect_signoff_disabled(self, request, obj):
-#         has_permission = self.check_group(request=request, group=Groups.SOLUTION_ARCHITECT.value)
-#         return (
-#             True
-#             if not obj
-#                 or obj.solution_architect_signoff
-#                 or not obj.solution_manager_signoff
-#                 or not obj.sales_advisor_signoff
-#                 or not has_permission
-#                 or request.user != obj.solution_manager_signoff.assignee
-#             else False
-#         )
-#
-#
-# admin.site.register(Opportunity, OpportunityAdmin)

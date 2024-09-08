@@ -2,7 +2,8 @@ from django.contrib.auth.models import User
 from django.db import models
 
 from apps.base.models import Audit
-from .constants import Stage as StageEnum
+from .constants import Stage as StageEnum, DocumentType
+from .managers import OpportunityManager
 
 
 class Opportunity(Audit):
@@ -34,6 +35,8 @@ class Opportunity(Audit):
         related_name="solution_architect_opportunities"
     )
 
+    objects = OpportunityManager()
+
     def __str__(self):
         return self.name
 
@@ -55,3 +58,8 @@ class Stage(Audit):
     class Meta:
         unique_together = ("opportunity", "stage")
 
+
+class Document(Audit):
+    opportunity = models.ForeignKey(Opportunity, on_delete=models.CASCADE)
+    type = models.CharField(max_length=64, choices=zip(DocumentType.list(), DocumentType.list()))
+    document = models.FileField()
